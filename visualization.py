@@ -12,7 +12,7 @@ from problem import extract_uav_info, INITIAL_POSITIONS_A, INITIAL_POSITIONS_B
 if not os.path.exists('plots'):
     os.makedirs('plots')
 
-def plot_pareto_front(population, gen=-1):
+def plot_pareto_front(population, gen=-1, result_dir="plots"):
     """绘制帕累托前沿 (3D)
     目标: (-Rate AB, -Rate BA, Energy)
     绘制: (Rate AB, Rate BA, Energy)
@@ -42,12 +42,18 @@ def plot_pareto_front(population, gen=-1):
     fig.colorbar(scatter, label='Total Energy (1e8 J)')
 
     plt.tight_layout()
-    plt.savefig(f'plots/pareto_front_gen_{gen}.png' if gen >= 0 else 'plots/final_pareto_front.png')
-    print(f"帕累托前沿图已保存至 plots/{'pareto_front_gen_'+str(gen) if gen >= 0 else 'final_pareto_front'}.png")
+    
+    # 确保目录存在
+    plots_dir = f"{result_dir}/plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    file_path = f"{plots_dir}/pareto_front_gen_{gen}.png" if gen >= 0 else f"{plots_dir}/final_pareto_front.png"
+    plt.savefig(file_path)
+    print(f"帕累托前沿图已保存至 {file_path}")
     # plt.show() # 取消注释以显示图像
     plt.close(fig)
 
-def plot_convergence(logbook):
+def plot_convergence(logbook, result_dir="plots"):
     """绘制收敛曲线 (各目标的平均值)"""
     gen = logbook.select("gen")
     avg_values = np.array(logbook.select("avg"))
@@ -75,12 +81,18 @@ def plot_convergence(logbook):
     ax[2].grid(True)
 
     plt.tight_layout()
-    plt.savefig('plots/convergence.png')
-    print("收敛曲线图已保存至 plots/convergence.png")
+    
+    # 确保目录存在
+    plots_dir = f"{result_dir}/plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    file_path = f"{plots_dir}/convergence.png"
+    plt.savefig(file_path)
+    print(f"收敛曲线图已保存至 {file_path}")
     # plt.show()
     plt.close(fig)
 
-def plot_deployment(individual, gen):
+def plot_deployment(individual, gen, result_dir="plots"):
     """绘制单个个体的无人机部署情况 (3D)"""
     if INITIAL_POSITIONS_A is None or INITIAL_POSITIONS_B is None:
         print(f"Warning: 无法绘制部署图(gen={gen})，初始位置未设置。")
@@ -148,7 +160,13 @@ def plot_deployment(individual, gen):
     ax.set_title(f'UAV Deployment at Generation {gen}')
     ax.legend()
     plt.tight_layout()
-    plt.savefig(f'plots/deployment_gen_{gen}.png')
-    print(f"无人机部署图 (Gen {gen}) 已保存至 plots/deployment_gen_{gen}.png")
+    
+    # 确保目录存在
+    plots_dir = f"{result_dir}/plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    file_path = f"{plots_dir}/deployment_gen_{gen}.png"
+    plt.savefig(file_path)
+    print(f"无人机部署图 (Gen {gen}) 已保存至 {file_path}")
     # plt.show()
     plt.close(fig) 

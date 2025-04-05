@@ -5,6 +5,9 @@ import numpy as np
 import time
 from tqdm import tqdm
 import multiprocessing
+import os
+import json
+import pickle
 
 from deap import base, creator, tools, algorithms
 
@@ -132,6 +135,11 @@ def main():
     random.seed(42) # 设置随机种子以便复现
     np.random.seed(42)
 
+    # 创建结果保存目录
+    result_dir = "improv" if USE_IMPROVED_ALGORITHM else "origin"
+    os.makedirs(result_dir, exist_ok=True)
+    os.makedirs(f"{result_dir}/plots", exist_ok=True)  # 为可视化结果创建子目录
+
     # 设置无人机初始位置（在创建进程池之前）
     print("生成无人机初始位置...")
     init_pos_a, init_pos_b = set_initial_positions()
@@ -153,11 +161,6 @@ def main():
     # 使用maxtasksperchild来限制每个进程处理的任务数，避免内存泄漏
     pool = multiprocessing.Pool(processes=num_processes, initializer=init_worker, maxtasksperchild=50)
     toolbox.register("map", pool.map)
-
-    # 生成全局初始位置 (只执行一次)
-    # 注意：已在创建进程池前执行
-    # print("生成无人机初始位置...")
-    # set_initial_positions()
 
     # 设置统计信息
     stats = tools.Statistics(lambda ind: ind.fitness.values)
@@ -199,6 +202,15 @@ def main():
     logbook.record(gen=0, evals=len(invalid_ind), **record)
     print(logbook.stream)
 
+    # 创建文本日志文件
+    with open(f"{result_dir}/optimization_log.txt", "w", encoding="utf-8") as log_file:
+        log_file.write(f"优化算法: {'改进NSGA-III' if USE_IMPROVED_ALGORITHM else '原始NSGA-III'}\n")
+        log_file.write(f"种群大小: {POP_SIZE}, 最大代数: {MAX_GEN}\n")
+        log_file.write(f"交叉概率: {CXPB}, 变异概率: {MUTPB}, ALO概率: {ALOPB}\n")
+        log_file.write(f"使用OBL初始化: {'是' if USE_OBL else '否'}\n\n")
+        log_file.write("=== 优化日志 ===\n")
+        log_file.write(f"代数 0: {logbook[0]}\n")
+
     # 绘制初始部署 (选择一个初始最佳个体)
     if PLOT_DEPLOYMENT and 0 in DEPLOYMENT_SNAPSHOT_GEN:
         # 确保初始位置已设置
@@ -207,7 +219,7 @@ def main():
         else:
             # 选择帕累托前沿中的一个点 (例如，能量最低的)
             best_ind_initial = min(pop, key=lambda x: x.fitness.values[2])
-            plot_deployment(best_ind_initial, 0)
+            plot_deployment(best_ind_initial, 0, result_dir=result_dir)
 
     # 开始进化
     print("开始进化...")
@@ -307,6 +319,10 @@ def main():
         record = stats.compile(pop)
         logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
+        
+        # 记录到文本日志
+        with open(f"{result_dir}/optimization_log.txt", "a", encoding="utf-8") as log_file:
+            log_file.write(f"代数 {gen}: {logbook[gen]}\n")
 
         # --- 可视化快照 ---
         if PLOT_DEPLOYMENT and gen in DEPLOYMENT_SNAPSHOT_GEN:
@@ -314,34 +330,74 @@ def main():
             current_front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
             if current_front:
                  best_ind_snapshot = min(current_front, key=lambda x: x.fitness.values[2])
-                 plot_deployment(best_ind_snapshot, gen)
+                 plot_deployment(best_ind_snapshot, gen, result_dir=result_dir)
             else:
                  print(f"第 {gen} 代没有找到非支配解用于绘制部署图。")
 
         if PLOT_PARETO_FRONT and gen % 50 == 0: # 每50代绘制一次帕累托前沿
             current_front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
             if current_front:
-                 plot_pareto_front(current_front, gen)
+                 plot_pareto_front(current_front, gen, result_dir=result_dir)
 
     end_time = time.time()
-    print(f"进化完成，耗时: {end_time - start_time:.2f} 秒")
+    execution_time = end_time - start_time
+    print(f"进化完成，耗时: {execution_time:.2f} 秒")
 
     # --- 最终结果与可视化 ---
     print("\n最终种群帕累托前沿:")
     final_front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
-    for i, ind in enumerate(final_front):
-        print(f"  个体 {i}: {-ind.fitness.values[0]:.2e} (R_AB), {-ind.fitness.values[1]:.2e} (R_BA), {ind.fitness.values[2]:.2e} (E_tot)")
+    
+    # 保存最终帕累托前沿结果到文本文件
+    with open(f"{result_dir}/final_results.txt", "w", encoding="utf-8") as results_file:
+        results_file.write(f"优化算法: {'改进NSGA-III' if USE_IMPROVED_ALGORITHM else '原始NSGA-III'}\n")
+        results_file.write(f"总耗时: {execution_time:.2f} 秒\n\n")
+        results_file.write("=== 最终帕累托前沿 ===\n")
+        results_file.write("编号\tRate_AB (bps)\tRate_BA (bps)\tEnergy (J)\n")
+        
+        # 将前沿中的个体按能量排序
+        sorted_front = sorted(final_front, key=lambda x: x.fitness.values[2])
+        
+        for i, ind in enumerate(sorted_front):
+            rate_ab = -ind.fitness.values[0]  # 转换回原始值
+            rate_ba = -ind.fitness.values[1]  # 转换回原始值
+            energy = ind.fitness.values[2]
+            results_file.write(f"{i}\t{rate_ab:.4e}\t{rate_ba:.4e}\t{energy:.4e}\n")
+            print(f"  个体 {i}: {rate_ab:.2e} (R_AB), {rate_ba:.2e} (R_BA), {energy:.2e} (E_tot)")
+    
+    # 保存帕累托前沿数据用于后续分析
+    pareto_data = {
+        'algorithm': 'improved' if USE_IMPROVED_ALGORITHM else 'original',
+        'execution_time': execution_time,
+        'objectives': [(ind.fitness.values[0], ind.fitness.values[1], ind.fitness.values[2]) 
+                       for ind in final_front],
+        'hypervolume': None,  # 将在metric.py中计算
+        'spread': None        # 将在metric.py中计算
+    }
+    
+    with open(f"{result_dir}/pareto_data.pkl", "wb") as f:
+        pickle.dump(pareto_data, f)
+
+    # 保存收敛历史数据
+    convergence_data = {
+        'generations': logbook.select('gen'),
+        'avg_values': logbook.select('avg'),
+        'min_values': logbook.select('min'),
+        'max_values': logbook.select('max'),
+    }
+    
+    with open(f"{result_dir}/convergence_data.pkl", "wb") as f:
+        pickle.dump(convergence_data, f)
 
     if PLOT_PARETO_FRONT:
-        plot_pareto_front(final_front, gen=-1) # 绘制最终帕累托前沿
+        plot_pareto_front(final_front, gen=-1, result_dir=result_dir) # 绘制最终帕累托前沿
 
     if PLOT_CONVERGENCE:
-        plot_convergence(logbook)
+        plot_convergence(logbook, result_dir=result_dir)
 
     if PLOT_DEPLOYMENT and MAX_GEN not in DEPLOYMENT_SNAPSHOT_GEN:
         # 绘制最终一代的最佳个体部署图
         best_ind_final = min(final_front, key=lambda x: x.fitness.values[2]) # 按能量最低选
-        plot_deployment(best_ind_final, MAX_GEN)
+        plot_deployment(best_ind_final, MAX_GEN, result_dir=result_dir)
 
     return pop, logbook
 

@@ -1,0 +1,17 @@
+{
+    "hypervolume": {
+        "original": 1.9844966770373435e+36,
+        "improved": 4.7249920881833194e+36,
+        "improvement": 138.09523809519618
+    },
+    "spacing": {
+        "original": 0.0025813338772984733,
+        "improved": 0.002150132153069671,
+        "improvement": 16.704608730432106
+    },
+    "execution_time": {
+        "original": 43.46100950241089,
+        "improved": 76.59229826927185,
+        "change": 76.23221169085612
+    }
+}
