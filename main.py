@@ -13,7 +13,7 @@ from config import (
     POP_SIZE, MAX_GEN, NUM_OBJECTIVES, CXPB, MUTPB, ALOPB, USE_OBL,
     IND_SIZE, LOWER_BOUNDS, UPPER_BOUNDS, REC_A_IDX, REC_B_IDX,
     PLOT_PARETO_FRONT, PLOT_CONVERGENCE, PLOT_DEPLOYMENT, DEPLOYMENT_SNAPSHOT_GEN,
-    NUM_DIVISIONS
+    NUM_DIVISIONS, USE_IMPROVED_ALGORITHM
 )
 
 # 问题定义和评估函数
@@ -27,6 +27,13 @@ from algorithm import (
 
 # 可视化函数
 from visualization import plot_pareto_front, plot_convergence, plot_deployment
+
+# 如果使用改进算法，导入相关功能
+if USE_IMPROVED_ALGORITHM:
+    from improved_algorithm import (
+        get_adaptive_reference_points, generate_variational_offspring,
+        evaluate_with_surrogate, update_surrogate_with_new_data
+    )
 
 # --- DEAP 设置 ---
 
@@ -82,6 +89,13 @@ toolbox.register("population_obl", population_obl)
 # 注册评估函数
 toolbox.register("evaluate", evaluate_a2acmop)
 
+# 如果使用改进算法，注册代理模型评估函数
+if USE_IMPROVED_ALGORITHM:
+    toolbox.register("evaluate_surrogate", evaluate_with_surrogate, real_eval_func=evaluate_a2acmop)
+    # 为变分算子设置当前代数属性（初始为0）
+    toolbox.current_gen = 0
+    toolbox.max_gen = MAX_GEN
+
 # 注册自定义交叉算子 (DBC)
 # 注意：cxUniform 的 indpb 控制每个基因交换的概率
 toolbox.register("mate", crossover_dbc, indpb_continuous=0.5) # 连续部分基因交换概率
@@ -103,6 +117,9 @@ ref_points = tools.uniform_reference_points(nobj=NUM_OBJECTIVES, p=NUM_DIVISIONS
 
 # 注册选择算子 (NSGA-III)
 toolbox.register("select", tools.selNSGA3, ref_points=ref_points)
+
+# 保存ref_points为工具箱属性，以便后续更新
+toolbox.ref_points = ref_points
 
 # 注册边界检查装饰器
 toolbox.decorate("mate", check_bounds(lb, ub))
@@ -158,9 +175,19 @@ def main():
 
     # 评估初始种群中的无效个体
     invalid_ind = [ind for ind in pop if not ind.fitness.valid]
-    fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+    
+    # 如果使用改进的代理模型
+    if USE_IMPROVED_ALGORITHM and hasattr(toolbox, 'evaluate_surrogate'):
+        fitnesses = [toolbox.evaluate_surrogate(ind) for ind in invalid_ind]
+    else:
+        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+        
     for ind, fit in tqdm(zip(invalid_ind, fitnesses), total=len(invalid_ind), desc="初始种群评估 [0/5]"):
         ind.fitness.values = fit
+
+    # 如果使用改进算法，更新代理模型
+    if USE_IMPROVED_ALGORITHM:
+        update_surrogate_with_new_data(invalid_ind, [ind.fitness.values for ind in invalid_ind], 0)
 
     # 如果使用了OBL，初始种群大小可能是 POP_SIZE*2，需要第一次选择
     if USE_OBL:
@@ -186,11 +213,28 @@ def main():
     print("开始进化...")
     start_time = time.time()
     for gen in tqdm(range(1, MAX_GEN + 1), desc=f"进化过程 [1/5]"):
+        # 设置当前代数（供改进算法使用）
+        if USE_IMPROVED_ALGORITHM:
+            toolbox.current_gen = gen
+            toolbox.max_gen = MAX_GEN
 
         # --- 生成子代 ---
         # 使用标准锦标赛选择代替DCD变体（DCD不适用于NSGA-III）
         selected_parents = tools.selTournament(pop, len(pop), tournsize=3)
         offspring = [toolbox.clone(ind) for ind in selected_parents]
+
+        # 如果使用改进算法，使用变分分布采样生成额外子代
+        if USE_IMPROVED_ALGORITHM:
+            # 更新参考点（如果需要）
+            if hasattr(toolbox, 'ref_points'):
+                toolbox.ref_points = get_adaptive_reference_points(pop, gen, toolbox.ref_points)
+                # 重新注册选择算子
+                toolbox.register("select", tools.selNSGA3, ref_points=toolbox.ref_points)
+            
+            # 生成变分分布采样的子代
+            var_offspring = generate_variational_offspring(pop, toolbox)
+            if var_offspring:
+                offspring.extend(var_offspring)
 
         # 应用交叉 (DBC)
         for i in tqdm(range(0, len(offspring), 2), desc=f"交叉操作 [2/5]", leave=False):
@@ -227,9 +271,34 @@ def main():
         # --- 评估所有适应度无效的个体 ---
         # (经过交叉、变异、ALO、BH后)
         invalid_ind = [ind for ind in combined_pop if not ind.fitness.valid]
-        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
-        for ind, fit in tqdm(zip(invalid_ind, fitnesses), total=len(invalid_ind), desc="适应度评估", leave=False):
-            ind.fitness.values = fit
+        
+        # 如果使用改进的代理模型
+        if USE_IMPROVED_ALGORITHM and hasattr(toolbox, 'evaluate_surrogate'):
+            # 使用代理模型评估
+            surrogate_fitnesses = []
+            true_eval_inds = []
+            
+            for ind in invalid_ind:
+                fitness = evaluate_with_surrogate(ind, toolbox.evaluate)
+                surrogate_fitnesses.append(fitness)
+                if not hasattr(ind, '_surrogate_evaluated') or not ind._surrogate_evaluated:
+                    true_eval_inds.append(ind)
+            
+            # 更新代理模型
+            if true_eval_inds:
+                update_surrogate_with_new_data(true_eval_inds, 
+                                              [ind.fitness.values for ind in true_eval_inds], 
+                                              gen)
+                
+            # 设置适应度
+            for ind, fit in zip(invalid_ind, surrogate_fitnesses):
+                ind.fitness.values = fit
+                ind._surrogate_evaluated = True
+        else:
+            # 使用真实评估函数
+            fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+            for ind, fit in tqdm(zip(invalid_ind, fitnesses), total=len(invalid_ind), desc="适应度评估", leave=False):
+                ind.fitness.values = fit
 
         # --- NSGA-III 选择 ---
         pop = toolbox.select(combined_pop, POP_SIZE)

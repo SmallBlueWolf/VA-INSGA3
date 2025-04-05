@@ -146,4 +146,36 @@ REC_B_IDX = len(LOWER_BOUNDS) - 1 # Index in the individual list
 assert len(LOWER_BOUNDS) == IND_SIZE, "Bounds list length mismatch"
 assert len(UPPER_BOUNDS) == IND_SIZE, "Bounds list length mismatch"
 
-print("Configuration loaded.") 
+print("Configuration loaded.")
+
+# ==========================================
+# 算法改进配置参数
+# ==========================================
+
+# 主开关参数：选择使用哪种算法版本
+USE_IMPROVED_ALGORITHM = True  # 设置为True使用改进版本，False使用原始INSGA-III
+
+# --- 改进点1: 基于变分分布的动态参考点自适应机制 ---
+ENABLE_ADAPTIVE_REF_POINTS = True  # 是否启用自适应参考点
+ADAPTIVE_REF_POINTS_FREQ = 10      # 每隔多少代更新一次参考点
+ADAPTIVE_REF_POINTS_METHOD = 'gmm' # 参考点生成方法：'gmm'(高斯混合模型)或'kde'(核密度估计)
+GMM_COMPONENTS = 5                 # GMM模型的组件数量
+SMOOTH_FACTOR = 0.7                # 平滑因子：新旧参考点混合比例(0-1)，越大表示保留越多旧参考点
+
+# --- 改进点2: 进化阶段自适应的变分分布采样算子 ---
+ENABLE_VARIATIONAL_SAMPLING = True  # 是否启用变分分布采样
+VAR_SAMPLING_PROB = 0.3             # 使用变分分布采样的概率
+STAGE_THRESHOLDS = [0.3, 0.7]       # 进化阶段划分阈值，如[0.3, 0.7]将进化分为三个阶段
+SAMPLING_METHODS = ['random', 'gmm', 'gmm'] # 各阶段使用的采样方法
+VAR_SAMPLING_RATIO = 0.2            # 每代使用变分采样生成的个体比例
+
+# --- 改进点3: 变分不确定性估计的代理模型 ---
+ENABLE_SURROGATE_MODEL = False       # 是否启用代理模型
+ENABLE_UNCERTAINTY = True            # 是否启用不确定性估计
+UNCERTAINTY_THRESHOLD = 0.2          # 不确定性阈值，超过此值将使用真实模型评估
+RETRAINING_FREQ = 50                 # 代理模型重新训练频率(每隔多少代)
+RETRAINING_SAMPLES = 1000            # 用于重训练的样本数量
+MC_DROPOUT_SAMPLES = 10              # Monte Carlo Dropout的采样次数
+ONLINE_LEARNING_BATCH = 20           # 在线学习的批量大小
+
+print("算法改进配置已加载。") 
