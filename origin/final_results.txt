@@ -1,8 +1,8 @@
-优化算法: 原始NSGA-III
-总耗时: 43.46 秒
+Optimization Algorithm: Original NSGA-III
+Total Time: 111.05 seconds
 
-=== 最终帕累托前沿 ===
-编号	Rate_AB (bps)	Rate_BA (bps)	Energy (J)
+=== Final Pareto Front ===
+ID	Rate_AB (bps)	Rate_BA (bps)	Energy (J)
 0	2.3877e+08	2.7296e+08	9.3971e+03
 1	2.3876e+08	2.7335e+08	9.3972e+03
 2	2.7462e+08	2.4381e+08	9.4369e+03
