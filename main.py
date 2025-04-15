@@ -131,6 +131,12 @@ toolbox.decorate("mutate", check_bounds(lb, ub))
 toolbox.decorate("update_alo", check_bounds(lb, ub))
 toolbox.decorate("apply_bh", check_bounds(lb, ub))
 
+# Define process pool initialization function at module level
+# Moved outside main() to enable pickling
+from problem import set_positions_from_arrays
+def init_worker(init_pos_a, init_pos_b):
+    set_positions_from_arrays(init_pos_a, init_pos_b)
+
 # --- Main Program ---
 def main():
     random.seed(42) # Set random seed for reproducibility
@@ -144,13 +150,6 @@ def main():
     # Set UAV initial positions (before creating process pool)
     print("Generating UAV initial positions...")
     init_pos_a, init_pos_b = set_initial_positions()
-    
-    # Import global position variables and setter function
-    from problem import set_positions_from_arrays
-    
-    # Define process pool initialization function to pass initial positions to each worker process
-    def init_worker(init_pos_a, init_pos_b):
-        set_positions_from_arrays(init_pos_a, init_pos_b)
     
     # Setup multiprocessing
     num_processes = 3  # Use all CPU cores except one
